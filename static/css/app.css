@@ -209,7 +209,6 @@ body{
   border-top: 1px solid rgba(255,255,255,.08);
 }
 
-/* Cards sempre alinhados */
 .product-card{ display: flex; flex-direction: column; }
 .product-body{ display: flex; flex-direction: column; height: 100%; }
 
@@ -229,7 +228,6 @@ body{
 }
 .product-actions{ margin-top: auto; padding-top: 10px; }
 
-/* Admin ERP */
 .erp-head{
   display:flex;
   align-items:flex-end;
