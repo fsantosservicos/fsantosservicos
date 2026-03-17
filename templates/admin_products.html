@@ -1,95 +1,95 @@
 {% extends "admin_layout.html" %}
-{% set page_title = "Produtos" %}
-{% set page_subtitle = "Cadastro interno com upload seguro (JPG/PNG/WEBP/PDF)" %}
+{% set page_title = "Painel — Dashboard" %}
+{% set page_subtitle = "Visão geral do sistema" %}
 
 {% block admin_content %}
-
-<div class="row g-4 mt-2">
-
-  <div class="col-lg-5">
-    <div class="cardx p-3">
-      <h5 class="fw-bold mb-3">Novo produto</h5>
-
-      <form method="post" action="/admin/produtos/novo" enctype="multipart/form-data">
-        <label class="form-label">SKU/Código</label>
-        <input class="form-control mb-2" name="sku" required>
-
-        <label class="form-label">Nome</label>
-        <input class="form-control mb-2" name="name" required>
-
-        <label class="form-label">Preço (texto)</label>
-        <input class="form-control mb-2" name="price_text" value="Sob consulta">
-
-        <label class="form-label">Capa (imagem)</label>
-        <input class="form-control mb-2" type="file" name="cover_file" accept=".jpg,.jpeg,.png,.webp">
-
-        <label class="form-label">PDF</label>
-        <input class="form-control mb-2" type="file" name="pdf_file" accept=".pdf">
-
-        <label class="form-label">Descrição curta</label>
-        <textarea class="form-control mb-2" name="short"></textarea>
-
-        <label class="form-label">Descrição completa</label>
-        <textarea class="form-control mb-3" name="description"></textarea>
-
-        <button class="btn btn-success w-100 fw-semibold">Salvar Produto</button>
-      </form>
+<div class="row g-3 mt-2">
+  <div class="col-12 col-md-4">
+    <div class="erp-kpi">
+      <div class="kpi-label">Produtos</div>
+      <div class="kpi-value">{{ total_produtos }}</div>
     </div>
   </div>
 
-  <div class="col-lg-7">
-    <div class="cardx p-3">
-      <h5 class="fw-bold mb-3">Cadastrados ({{ products|length }})</h5>
+  <div class="col-12 col-md-4">
+    <div class="erp-kpi">
+      <div class="kpi-label">Orçamentos (total)</div>
+      <div class="kpi-value">{{ total_orcamentos }}</div>
+    </div>
+  </div>
 
+  <div class="col-12 col-md-4">
+    <div class="erp-kpi">
+      <div class="kpi-label">Orçamentos (hoje)</div>
+      <div class="kpi-value">{{ total_hoje }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-12 col-lg-7">
+    <div class="cardx p-3">
+      <div class="fw-bold mb-2">Orçamentos por dia (últimos 14 dias)</div>
+      <canvas id="chartQuotes" height="120"></canvas>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="cardx p-3">
+      <div class="fw-bold mb-2">Últimos orçamentos</div>
       <div class="table-responsive">
         <table class="table table-darkish align-middle">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>Data</th>
+              <th>Cliente</th>
               <th>SKU</th>
-              <th>Nome</th>
-              <th>Capa</th>
-              <th>PDF</th>
-              <th class="text-end">Ações</th>
             </tr>
           </thead>
           <tbody>
-            {% for p in products %}
+            {% for l in last_logs %}
             <tr>
-              <td>{{ p.id }}</td>
-              <td class="text-info">{{ p.sku }}</td>
-              <td class="fw-semibold">{{ p.name }}</td>
-
-              <td>
-                {% if p.image_path %}
-                  <a href="{{ url_for('static', filename=p.image_path) }}" target="_blank">Ver</a>
-                {% else %}-{% endif %}
-              </td>
-
-              <td>
-                {% if p.file_path %}
-                  <a href="{{ url_for('static', filename=p.file_path) }}" target="_blank">Abrir</a>
-                {% else %}-{% endif %}
-              </td>
-
-              <td class="text-end">
-                <div class="d-flex justify-content-end gap-2">
-                  <a href="/admin/produtos/editar/{{ p.id }}" class="btn btn-sm btn-primary fw-semibold">Editar</a>
-                  <a href="/admin/produtos/excluir/{{ p.id }}"
-                     class="btn btn-sm btn-danger fw-semibold"
-                     onclick="return confirm('Deseja excluir este produto?')">Excluir</a>
-                </div>
-              </td>
-
+              <td class="text-muted">{{ l.created_at.strftime("%d/%m %H:%M") }}</td>
+              <td>{{ l.empresa }}</td>
+              <td class="text-muted">{{ l.product_sku or "-" }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-
+      <div class="mt-2 text-end">
+        <a class="btn btn-sm btn-primary" href="/admin/orcamentos">Ver todos</a>
+      </div>
     </div>
   </div>
-
 </div>
+{% endblock %}
 
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const labels = {{ chart_labels|tojson }};
+const data = {{ chart_data|tojson }};
+
+new Chart(document.getElementById("chartQuotes"), {
+  type: "line",
+  data: {
+    labels,
+    datasets: [{
+      label: "Orçamentos",
+      data,
+      tension: 0.35,
+      fill: true
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.08)" } },
+      y: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.08)" }, beginAtZero: true }
+    }
+  }
+});
+</script>
 {% endblock %}
