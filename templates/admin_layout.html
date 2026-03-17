@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="erp-head">
+  <div>
+    <h2 class="m-0 fw-800">{{ page_title }}</h2>
+    {% if page_subtitle %}<div class="text-muted">{{ page_subtitle }}</div>{% endif %}
+  </div>
+  <div class="erp-actions">
+    <a class="btn btn-outline-light" href="/admin/dashboard">Dashboard</a>
+    <a class="btn btn-outline-light" href="/admin/produtos">Produtos</a>
+    <a class="btn btn-outline-light" href="/admin/orcamentos">Orçamentos</a>
+  </div>
+</div>
+
+{% block admin_content %}{% endblock %}
+{% endblock %}

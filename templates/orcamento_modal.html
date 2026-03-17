@@ -1,0 +1,66 @@
+<div class="modal fade" id="orcamentoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0">
+        <div>
+          <div class="text-muted small"><code id="mSku"></code></div>
+          <h5 class="modal-title fw-800" id="mTitle">Solicitar Orçamento</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+
+      <form method="post" action="/orcamento">
+        <div class="modal-body">
+          <input type="hidden" name="product_id" id="mProductId">
+
+          <div class="row g-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold">Nome</label>
+              <input class="form-control" name="nome" required>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold">Empresa/Cliente</label>
+              <input class="form-control" name="empresa" required>
+            </div>
+
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">CNPJ/CPF</label>
+              <input class="form-control" name="cnpjcpf" required>
+            </div>
+
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">E-mail</label>
+              <input class="form-control" name="email" type="email" required>
+            </div>
+
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">Telefone</label>
+              <input class="form-control" name="telefone" required>
+            </div>
+
+            <div class="col-12">
+              <label class="form-label fw-semibold">Mensagem (opcional)</label>
+              <textarea class="form-control" name="mensagem" rows="3"></textarea>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="modal-footer border-0">
+          <button class="btn btn-outline-light" data-bs-dismiss="modal" type="button">Cancelar</button>
+          <button class="btn btn-success fw-semibold" type="submit">Enviar</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  function setProduto(id, nome, sku, preco){
+    document.getElementById("mProductId").value = id;
+    document.getElementById("mTitle").textContent = "Solicitar Orçamento — " + nome;
+    document.getElementById("mSku").textContent = sku + (preco ? " • " + preco : "");
+  }
+</script>

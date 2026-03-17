@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-head">
+  <div class="page-title">
+    <h2 class="m-0 fw-800">Produtos</h2>
+  </div>
+
+  <form method="GET" class="searchbar">
+    <input
+      type="text"
+      name="q"
+      class="form-control"
+      placeholder="Buscar por palavra ou número"
+      value="{{ q if q else '' }}"
+      autocomplete="off"
+    />
+    <button type="submit" class="btn btn-primary">Buscar</button>
+  </form>
+</div>
+
+<div class="row g-4">
+  {% for p in products %}
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="cardx h-100 product-card">
+
+      <div class="thumb">
+        {% if p.image_path %}
+          <img src="{{ url_for('static', filename=p.image_path) }}" alt="{{ p.name }}">
+        {% else %}
+          <div class="thumb-empty">Sem imagem</div>
+        {% endif %}
+      </div>
+
+      <div class="p-3 product-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <span class="pill">{{ p.sku }}</span>
+          <span class="price">{{ p.price_text }}</span>
+        </div>
+
+        <h5 class="fw-bold mb-1 product-title">{{ p.name }}</h5>
+
+        {% if p.short %}
+          <p class="small text-muted mb-3 product-desc">{{ p.short }}</p>
+        {% else %}
+          <p class="small text-muted mb-3 product-desc"></p>
+        {% endif %}
+
+        <div class="product-actions">
+          <div class="d-flex gap-2 flex-wrap">
+            {% if p.file_path %}
+              <a class="btn btn-outline-light btn-sm"
+                 target="_blank"
+                 href="{{ url_for('static', filename=p.file_path) }}">
+                Abrir PDF
+              </a>
+            {% endif %}
+
+            <button class="btn btn-success btn-sm"
+              data-bs-toggle="modal"
+              data-bs-target="#orcamentoModal"
+              onclick="setProduto('{{ p.id }}','{{ p.name|e }}','{{ p.sku|e }}','{{ p.price_text|e }}')">
+              Solicitar Orçamento
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% include "orcamento_modal.html" %}
+
+{% endblock %}

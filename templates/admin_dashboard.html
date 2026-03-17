@@ -1,0 +1,98 @@
+{% extends "admin_layout.html" %}
+{% set page_title = "Painel — Dashboard" %}
+{% set page_subtitle = "Visão geral do sistema" %}
+
+{% block admin_content %}
+
+<div class="row g-3 mt-2">
+  <div class="col-12 col-md-4">
+    <div class="erp-kpi">
+      <div class="kpi-label">Produtos</div>
+      <div class="kpi-value">{{ total_produtos }}</div>
+    </div>
+  </div>
+
+  <div class="col-12 col-md-4">
+    <div class="erp-kpi">
+      <div class="kpi-label">Orçamentos (total)</div>
+      <div class="kpi-value">{{ total_orcamentos }}</div>
+    </div>
+  </div>
+
+  <div class="col-12 col-md-4">
+    <div class="erp-kpi">
+      <div class="kpi-label">Orçamentos (hoje)</div>
+      <div class="kpi-value">{{ total_hoje }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-12 col-lg-7">
+    <div class="cardx p-3">
+      <div class="fw-bold mb-2">Orçamentos por dia (últimos 14 dias)</div>
+      <canvas id="chartQuotes" height="120"></canvas>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="cardx p-3">
+      <div class="fw-bold mb-2">Últimos orçamentos</div>
+      <div class="table-responsive">
+        <table class="table table-darkish align-middle">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Cliente</th>
+              <th>SKU</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for l in last_logs %}
+            <tr>
+              <td class="text-muted">{{ l.created_at.strftime("%d/%m %H:%M") }}</td>
+              <td>{{ l.empresa }}</td>
+              <td class="text-muted">{{ l.product_sku or "-" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-2 text-end">
+        <a class="btn btn-sm btn-primary" href="/admin/orcamentos">Ver todos</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  const labels = {{ chart_labels|tojson }};
+  const data = {{ chart_data|tojson }};
+
+  new Chart(document.getElementById("chartQuotes"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Orçamentos",
+        data,
+        tension: 0.35,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.08)" } },
+        y: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.08)" }, beginAtZero: true }
+      }
+    }
+  });
+</script>
+{% endblock %}

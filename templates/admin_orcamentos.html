@@ -1,0 +1,51 @@
+{% extends "admin_layout.html" %}
+{% set page_title = "Orçamentos enviados" %}
+{% set page_subtitle = "Consulta e auditoria (log no banco)" %}
+
+{% block admin_content %}
+
+<form method="GET" class="searchbar mt-3" style="max-width: 560px;">
+  <input class="form-control" name="q" placeholder="Buscar por cliente, e-mail, CNPJ/CPF, SKU..." value="{{ q }}">
+  <button class="btn btn-primary">Buscar</button>
+</form>
+
+<div class="cardx p-3 mt-3">
+  <div class="table-responsive">
+    <table class="table table-darkish align-middle">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Cliente</th>
+          <th>CNPJ/CPF</th>
+          <th>E-mail</th>
+          <th>Telefone</th>
+          <th>SKU</th>
+          <th>Status</th>
+          <th>Erro</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in logs %}
+        <tr>
+          <td class="text-muted">{{ l.created_at.strftime("%d/%m/%Y %H:%M") }}</td>
+          <td>{{ l.empresa }}</td>
+          <td class="text-muted">{{ l.cnpjcpf }}</td>
+          <td class="text-muted">{{ l.email }}</td>
+          <td class="text-muted">{{ l.telefone }}</td>
+          <td class="text-muted">{{ l.product_sku or "-" }}</td>
+          <td>
+            {% if l.status == "enviado" %}
+              <span class="badge bg-success">enviado</span>
+            {% else %}
+              <span class="badge bg-danger">erro</span>
+            {% endif %}
+          </td>
+          <td class="text-muted">{{ l.error or "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

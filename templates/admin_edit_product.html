@@ -1,0 +1,53 @@
+{% extends "admin_layout.html" %}
+{% set page_title = "Editar Produto" %}
+{% set page_subtitle = "Atualize dados e arquivos do produto" %}
+
+{% block admin_content %}
+<div class="cardx p-3 mt-2">
+  <form method="post" enctype="multipart/form-data">
+    <div class="row g-3">
+
+      <div class="col-md-4">
+        <label class="form-label">SKU</label>
+        <input class="form-control" name="sku" value="{{ p.sku }}" required>
+      </div>
+
+      <div class="col-md-8">
+        <label class="form-label">Nome</label>
+        <input class="form-control" name="name" value="{{ p.name }}" required>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Preço (texto)</label>
+        <input class="form-control" name="price_text" value="{{ p.price_text }}">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Nova capa (opcional)</label>
+        <input class="form-control" type="file" name="cover_file" accept=".jpg,.jpeg,.png,.webp">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Novo PDF (opcional)</label>
+        <input class="form-control" type="file" name="pdf_file" accept=".pdf">
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">Descrição curta</label>
+        <textarea class="form-control" name="short" rows="2">{{ p.short or "" }}</textarea>
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">Descrição completa</label>
+        <textarea class="form-control" name="description" rows="5">{{ p.description or "" }}</textarea>
+      </div>
+
+      <div class="col-12 d-flex gap-2 justify-content-end">
+        <a class="btn btn-outline-light" href="/admin/produtos">Voltar</a>
+        <button class="btn btn-success fw-semibold">Salvar</button>
+      </div>
+
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+  <div>
+    <h3 class="fw-bold mb-0">Logs de Orçamentos</h3>
+    <div class="text-muted">Últimos {{ logs|length }} registros</div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-secondary" href="/admin/produtos">Produtos</a>
+    <a class="btn btn-outline-secondary" href="/admin/dashboard">Dashboard</a>
+    <a class="btn btn-outline-danger" href="/admin/logout">Sair</a>
+  </div>
+</div>
+
+<div class="cardx p-3">
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Produto</th>
+          <th>Cliente</th>
+          <th>Email</th>
+          <th>Telefone</th>
+          <th>Status</th>
+          <th>Erro</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in logs %}
+        <tr>
+          <td class="text-nowrap">{{ l.created_at.strftime("%d/%m/%Y %H:%M") }}</td>
+          <td>
+            <div class="fw-semibold">{{ l.product_name }}</div>
+            <div class="text-muted small"><code>{{ l.product_sku }}</code></div>
+          </td>
+          <td>
+            <div>{{ l.nome }}</div>
+            <div class="text-muted small">{{ l.empresa }} | {{ l.cnpjcpf }}</div>
+          </td>
+          <td>{{ l.email }}</td>
+          <td>{{ l.telefone }}</td>
+          <td>
+            {% if l.sent_ok %}
+              <span class="badge text-bg-success">Enviado</span>
+            {% else %}
+              <span class="badge text-bg-danger">Falhou</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ l.error_msg or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
