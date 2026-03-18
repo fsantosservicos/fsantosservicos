@@ -3,6 +3,7 @@
 {% set page_subtitle = "Visão geral do sistema" %}
 
 {% block admin_content %}
+
 <div class="row g-3 mt-2">
   <div class="col-12 col-md-4">
     <div class="erp-kpi">
@@ -57,39 +58,41 @@
           </tbody>
         </table>
       </div>
+
       <div class="mt-2 text-end">
         <a class="btn btn-sm btn-primary" href="/admin/orcamentos">Ver todos</a>
       </div>
     </div>
   </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
-const labels = {{ chart_labels|tojson }};
-const data = {{ chart_data|tojson }};
+  const labels = {{ chart_labels|tojson }};
+  const data = {{ chart_data|tojson }};
 
-new Chart(document.getElementById("chartQuotes"), {
-  type: "line",
-  data: {
-    labels,
-    datasets: [{
-      label: "Orçamentos",
-      data,
-      tension: 0.35,
-      fill: true
-    }]
-  },
-  options: {
-    responsive: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.08)" } },
-      y: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.08)" }, beginAtZero: true }
+  new Chart(document.getElementById("chartQuotes"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Orçamentos",
+        data,
+        tension: 0.35,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.08)" } },
+        y: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.08)" }, beginAtZero: true }
+      }
     }
-  }
-});
+  });
 </script>
 {% endblock %}
