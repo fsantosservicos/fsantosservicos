@@ -1,8 +1,7 @@
 import os
-import smtplib
-from email.message import EmailMessage
 from datetime import datetime, timedelta
 
+import requests
 from flask import (
     Flask, render_template, request, redirect,
     url_for, flash, session
@@ -13,7 +12,7 @@ from werkzeug.utils import secure_filename
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()  # localmente lê .env; no Render, usa env vars do painel
+    load_dotenv()  # localmente lê .env; no Render usa env vars do painel
 except Exception:
     pass
 
@@ -137,72 +136,42 @@ def create_admin_if_missing():
 
 
 def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> tuple[bool, str | None]:
-    host = os.getenv("SMTP_HOST", "").strip()
-    port_raw = os.getenv("SMTP_PORT", "25").strip()
-    user = os.getenv("SMTP_USER", "").strip()
-    pw = os.getenv("SMTP_PASS", "").strip()
-    from_addr = os.getenv("SMTP_FROM", "").strip()
-    to_addr = os.getenv("SMTP_TO", "").strip()
-    from_name = os.getenv("SMTP_FROM_NAME", "FSantosServiços - orçamento.").strip()
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    from_addr = os.getenv("RESEND_FROM", "onboarding@resend.dev").strip()
+    to_addr = os.getenv("RESEND_TO", "").strip()
+    from_name = os.getenv("RESEND_FROM_NAME", "FSantosServiços - orçamento.").strip()
 
-    tls = os.getenv("SMTP_TLS", "false").strip().lower() in ("1", "true", "yes", "sim")
-    ssl = os.getenv("SMTP_SSL", "false").strip().lower() in ("1", "true", "yes", "sim")
+    if not api_key:
+        return False, "RESEND_API_KEY não configurada"
+    if not to_addr:
+        return False, "RESEND_TO não configurado"
 
-    if not host or not from_addr or not to_addr:
-        missing = []
-        if not host:
-            missing.append("SMTP_HOST")
-        if not from_addr:
-            missing.append("SMTP_FROM")
-        if not to_addr:
-            missing.append("SMTP_TO")
-        return False, "SMTP não configurado: faltando " + ", ".join(missing)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
 
-    try:
-        port = int(port_raw or "25")
-    except Exception:
-        return False, f"SMTP_PORT inválido: {port_raw}"
+    payload = {
+        "from": f"{from_name} <{from_addr}>",
+        "to": [to_addr],
+        "subject": subject,
+        "html": f"<pre style='font-family:Arial,sans-serif;white-space:pre-wrap'>{body}</pre>",
+        "text": body,
+    }
 
-    print(
-        "[SMTP CONFIG]",
-        {
-            "SMTP_HOST": host,
-            "SMTP_PORT": port,
-            "SMTP_FROM": from_addr,
-            "SMTP_TO": to_addr,
-            "SMTP_TLS": tls,
-            "SMTP_SSL": ssl,
-            "SMTP_USER_PRESENTE": bool(user),
-        },
-    )
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = f"{from_name} <{from_addr}>"
-    msg["To"] = to_addr
     if reply_to:
-        msg["Reply-To"] = reply_to
-    msg.set_content(body)
+        payload["reply_to"] = reply_to
 
     try:
-        if ssl:
-            with smtplib.SMTP_SSL(host, port, timeout=12) as s:
-                s.ehlo()
-                if user:
-                    s.login(user, pw)
-                s.send_message(msg)
-        else:
-            with smtplib.SMTP(host, port, timeout=12) as s:
-                s.ehlo()
-                if tls:
-                    s.starttls()
-                    s.ehlo()
-                if user:
-                    s.login(user, pw)
-                s.send_message(msg)
-
-        return True, None
-
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers=headers,
+            json=payload,
+            timeout=12,
+        )
+        if 200 <= resp.status_code < 300:
+            return True, None
+        return False, f"Resend {resp.status_code}: {resp.text}"
     except Exception as e:
         return False, str(e)
 
@@ -586,11 +555,7 @@ if __name__ == "__main__":
     init_all()
     print(">>> SERVIDOR INICIADO: Solicitacao_compras.py <<<")
     print(">>> PASTA DO APP:", BASE_DIR)
-    print(">>> SMTP_HOST =", os.getenv("SMTP_HOST"))
-    print(">>> SMTP_PORT =", os.getenv("SMTP_PORT"))
-    print(">>> SMTP_FROM =", os.getenv("SMTP_FROM"))
-    print(">>> SMTP_TO   =", os.getenv("SMTP_TO"))
-    print(">>> SMTP_TLS  =", os.getenv("SMTP_TLS"))
-    print(">>> SMTP_SSL  =", os.getenv("SMTP_SSL"))
-
+    print(">>> RESEND_FROM =", os.getenv("RESEND_FROM"))
+    print(">>> RESEND_TO   =", os.getenv("RESEND_TO"))
+    print(">>> RESEND_API_KEY configured =", bool(os.getenv("RESEND_API_KEY")))
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
