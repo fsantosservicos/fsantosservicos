@@ -13,9 +13,9 @@ TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
-app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "dev_secret_fsantos_2024")
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "dev_secret_fsantos_2026")
 
-# Banco de Dados (SQLite no Render precisa da pasta instance)
+# Banco de Dados
 INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
 os.makedirs(INSTANCE_DIR, exist_ok=True)
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///" + os.path.join(INSTANCE_DIR, "app.db"))
@@ -54,14 +54,14 @@ def send_resend_email(subject, body, reply_to):
     to_email = os.getenv("RESEND_TO", "").strip()
 
     if not api_key or not to_email:
-        return False, "Configuração de API Resend pendente no Render."
+        return False, "Configuração de API Resend pendente."
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
-        "from": f"FSantos Serviços <{from_email}>",
+        "from": f"FSantos <{from_email}>",
         "to": [to_email],
         "subject": subject,
-        "html": f"<div style='font-family:sans-serif'>{body}</div>",
+        "html": f"<div>{body}</div>",
         "reply_to": reply_to
     }
     try:
@@ -70,33 +70,15 @@ def send_resend_email(subject, body, reply_to):
     except Exception as e:
         return False, str(e)
 
-# =========================
-# ROTAS PÚBLICAS
-# =========================
+# ==========================================
+# ROTAS CORRIGIDAS (PORTUGUÊS)
+# ==========================================
+
 @app.route("/")
 def home():
     products = Product.query.order_by(Product.created_at.desc()).all()
     return render_template("index.html", products=products, year=datetime.now().year)
 
-@app.post("/orcamento")
-def orcamento():
-    nome = request.form.get("nome")
-    email = request.form.get("email")
-    msg = request.form.get("mensagem")
-    
-    body = f"<b>Solicitação de Orçamento</b><br>Nome: {nome}<br>Email: {email}<br>Mensagem: {msg}"
-    sucesso, erro = send_resend_email(f"Novo Orçamento - {nome}", body, email)
-    
-    log = QuoteLog(nome=nome, email=email, status="sucesso" if sucesso else "erro")
-    db.session.add(log)
-    db.session.commit()
-    
-    flash("Sua mensagem foi enviada!" if sucesso else f"Erro no envio: {erro}", "success" if sucesso else "danger")
-    return redirect(url_for("home"))
-
-# =========================
-# ROTAS ADMIN (RESOLVENDO ERRO 500)
-# =========================
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
@@ -111,21 +93,12 @@ def admin_login():
 @app.route("/admin/dashboard")
 def admin_dashboard():
     if not session.get("admin_logged"): return redirect(url_for("admin_login"))
-    
-    # IMPORTANTE: Enviando variáveis que o template dashboard costuma usar
     p_count = Product.query.count()
     q_count = QuoteLog.query.count()
-    recent_quotes = QuoteLog.query.order_by(QuoteLog.created_at.desc()).limit(5).all()
-    
-    return render_template(
-        "admin_dashboard.html", 
-        product_count=p_count, 
-        quote_count=q_count, 
-        recent_quotes=recent_quotes,
-        year=datetime.now().year
-    )
+    return render_template("admin_dashboard.html", product_count=p_count, quote_count=q_count, year=datetime.now().year)
 
-@app.route("/admin/products")
+# ROTA CORRIGIDA PARA /ADMIN/PRODUTOS
+@app.route("/admin/produtos")
 def admin_products():
     if not session.get("admin_logged"): return redirect(url_for("admin_login"))
     products = Product.query.all()
@@ -137,18 +110,20 @@ def admin_orcamentos():
     logs = QuoteLog.query.order_by(QuoteLog.created_at.desc()).all()
     return render_template("admin_orcamentos.html", logs=logs, year=datetime.now().year)
 
-@app.route("/admin/logs")
-def view_system_logs():
-    if not session.get("admin_logged"): return redirect(url_for("admin_login"))
-    return render_template("logs.html", year=datetime.now().year)
-
-@app.route("/dashboard")
-def general_dashboard():
-    return render_template("dashboard.html", year=datetime.now().year)
-
 @app.route("/logout")
 def logout():
     session.clear()
+    return redirect(url_for("home"))
+
+@app.post("/orcamento")
+def orcamento():
+    nome = request.form.get("nome")
+    email = request.form.get("email")
+    sucesso, erro = send_resend_email(f"Orçamento - {nome}", f"Pedido de {nome}", email)
+    log = QuoteLog(nome=nome, email=email, status="sucesso" if sucesso else "erro")
+    db.session.add(log)
+    db.session.commit()
+    flash("Enviado!" if sucesso else f"Erro: {erro}", "success" if sucesso else "danger")
     return redirect(url_for("home"))
 
 # =========================
@@ -159,3 +134,4 @@ with app.app_context():
 
 if __name__ == "__main__":
     app.run()
+
