@@ -1,13 +1,13 @@
 import os
-import smtplib
-from email.message import EmailMessage
 from datetime import datetime, timedelta
 
+import resend
 from flask import (
     Flask, render_template, request, redirect,
     url_for, flash, session
 )
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import or_, func
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -33,14 +33,28 @@ PDFS_DIR = os.path.join(UPLOADS_DIR, "pdfs")
 for d in [INSTANCE_DIR, UPLOADS_DIR, COVERS_DIR, PDFS_DIR]:
     os.makedirs(d, exist_ok=True)
 
-DB_PATH = os.path.join(INSTANCE_DIR, "app.db")
-DB_URI = "sqlite:///" + DB_PATH.replace("\\", "/")
+# Banco:
+# - local: SQLite
+# - Render/produção: usa DATABASE_URL se existir
+db_url = os.getenv("DATABASE_URL", "").strip()
+
+if db_url:
+    # Compatibilidade com alguns providers antigos
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    DB_URI = db_url
+else:
+    DB_PATH = os.path.join(INSTANCE_DIR, "app.db")
+    DB_URI = "sqlite:///" + DB_PATH.replace("\\", "/")
 
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "dev_secret_change_me")
 app.config["SQLALCHEMY_DATABASE_URI"] = DB_URI
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+}
 
 db = SQLAlchemy(app)
 
@@ -71,7 +85,12 @@ class Product(db.Model):
     file_path = db.Column(db.String(400), nullable=True)   # uploads/pdfs/...
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
 
 
 class QuoteLog(db.Model):
@@ -100,21 +119,26 @@ class QuoteLog(db.Model):
 ALLOWED_COVER_EXT = {"jpg", "jpeg", "png", "webp"}
 ALLOWED_PDF_EXT = {"pdf"}
 
+
 def ext_of(filename: str) -> str:
     filename = filename.lower().strip()
     return filename.rsplit(".", 1)[-1] if "." in filename else ""
+
 
 def safe_filename(filename: str) -> str:
     filename = secure_filename(filename)
     return filename or "file"
 
+
 def normalize_q(s: str) -> str:
     return (s or "").strip()
+
 
 def admin_required():
     if not session.get("admin_logged"):
         return redirect(url_for("admin_login"))
     return None
+
 
 def create_admin_if_missing():
     user = os.getenv("ADMIN_USER", "admin").strip()
@@ -127,67 +151,57 @@ def create_admin_if_missing():
     au = AdminUser(username=user, password_hash=generate_password_hash(pw))
     db.session.add(au)
     db.session.commit()
-    print(f"[OK] Admin criado: {user} (senha do .env)")
+    print(f"[OK] Admin criado: {user}")
 
 
-# ✅ ALTERAÇÃO SOLICITADA:
-# - Subject no formato: "Orçamento - NOME (SKU XXX)"
-# - From com nome exibido: "FSantosServiços - orçamento. <email@...>"
-# - Reply-To = email do cliente
-# - Suporte a TLS/SSL via env
-def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> (bool, str | None):
-    host = os.getenv("SMTP_HOST", "").strip()
-    port_raw = os.getenv("SMTP_PORT", "25").strip()
-    user = os.getenv("SMTP_USER", "").strip()
-    pw = os.getenv("SMTP_PASS", "").strip()
+def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> tuple[bool, str | None]:
+    """
+    Envia e-mail usando Resend.
 
-    from_addr = os.getenv("SMTP_FROM", "").strip()
-    to_addr = os.getenv("SMTP_TO", "").strip()
+    Variáveis de ambiente:
+      - RESEND_API_KEY
+      - RESEND_FROM
+      - RESEND_TO
+      - RESEND_FROM_NAME (opcional)
+    """
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    from_addr = os.getenv("RESEND_FROM", "").strip()
+    to_addr = os.getenv("RESEND_TO", "").strip()
+    from_name = os.getenv("RESEND_FROM_NAME", "FSantosServiços - orçamento.").strip()
 
-    from_name = os.getenv("SMTP_FROM_NAME", "FSantosServiços - orçamento.").strip()
-
-    tls = os.getenv("SMTP_TLS", "false").strip().lower() in ("1", "true", "yes", "sim")
-    ssl = os.getenv("SMTP_SSL", "false").strip().lower() in ("1", "true", "yes", "sim")
-
-    if not host or not from_addr or not to_addr:
+    if not api_key or not from_addr or not to_addr:
         missing = []
-        if not host: missing.append("SMTP_HOST")
-        if not from_addr: missing.append("SMTP_FROM")
-        if not to_addr: missing.append("SMTP_TO")
-        return False, "SMTP não configurado: faltando " + ", ".join(missing)
+        if not api_key:
+            missing.append("RESEND_API_KEY")
+        if not from_addr:
+            missing.append("RESEND_FROM")
+        if not to_addr:
+            missing.append("RESEND_TO")
+        return False, "Resend não configurado: faltando " + ", ".join(missing)
 
     try:
-        port = int(port_raw or "25")
-    except Exception:
-        return False, f"SMTP_PORT inválido: {port_raw}"
+        resend.api_key = api_key
 
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = f"{from_name} <{from_addr}>"
-    msg["To"] = to_addr
-    if reply_to:
-        msg["Reply-To"] = reply_to
+        params = {
+            "from": f"{from_name} <{from_addr}>",
+            "to": [to_addr],
+            "subject": subject,
+            "text": body,
+        }
 
-    msg.set_content(body)
+        if reply_to:
+            params["reply_to"] = reply_to
 
-    try:
-        if ssl:
-            with smtplib.SMTP_SSL(host, port, timeout=30) as s:
-                s.ehlo()
-                if user:
-                    s.login(user, pw)
-                s.send_message(msg)
-        else:
-            with smtplib.SMTP(host, port, timeout=30) as s:
-                s.ehlo()
-                if tls:
-                    s.starttls()
-                    s.ehlo()
-                if user:
-                    s.login(user, pw)
-                s.send_message(msg)
+        response = resend.Emails.send(params)
+
+        if isinstance(response, dict):
+            if response.get("id"):
+                return True, None
+            if response.get("error"):
+                return False, str(response.get("error"))
 
         return True, None
+
     except Exception as e:
         return False, str(e)
 
@@ -212,7 +226,7 @@ def home():
     if q:
         like = f"%{q}%"
         query = query.filter(
-            db.or_(
+            or_(
                 Product.sku.ilike(like),
                 Product.name.ilike(like),
                 Product.short.ilike(like),
@@ -247,9 +261,8 @@ def orcamento():
 
     product = None
     if product_id.isdigit():
-        product = Product.query.get(int(product_id))
+        product = db.session.get(Product, int(product_id))
 
-    # ✅ ASSUNTO NO FORMATO DA 2ª IMAGEM
     if product:
         subject = f"Orçamento - {product.name} (SKU {product.sku})"
     else:
@@ -272,7 +285,6 @@ def orcamento():
         body.append("Mensagem:")
         body.append(mensagem)
 
-    # ✅ Reply-To = email do cliente (quando clicar responder vai pra ele)
     sent, err = send_email_quote(subject, "\n".join(body), reply_to=email)
 
     try:
@@ -280,8 +292,11 @@ def orcamento():
             product_id=(product.id if product else None),
             product_name=(product.name if product else None),
             product_sku=(product.sku if product else None),
-            nome=nome, empresa=empresa, cnpjcpf=cnpjcpf,
-            email=email, telefone=telefone,
+            nome=nome,
+            empresa=empresa,
+            cnpjcpf=cnpjcpf,
+            email=email,
+            telefone=telefone,
             mensagem=mensagem or None,
             status=("enviado" if sent else "erro"),
             error=(err if err else None)
@@ -289,10 +304,7 @@ def orcamento():
         db.session.add(log)
         db.session.commit()
     except Exception:
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
+        db.session.rollback()
 
     if err:
         flash(f"Orçamento registrado, mas NÃO foi enviado por e-mail: {err}", "warning")
@@ -309,6 +321,7 @@ def orcamento():
 def admin_login():
     return render_template("admin_login.html", year=datetime.now().year, title="Admin")
 
+
 @app.post("/admin/login")
 def admin_login_post():
     username = (request.form.get("username") or "").strip()
@@ -323,6 +336,7 @@ def admin_login_post():
     session["admin_user"] = u.username
     return redirect(url_for("admin_dashboard"))
 
+
 @app.get("/admin/logout")
 def admin_logout():
     session.clear()
@@ -335,13 +349,16 @@ def admin_logout():
 @app.get("/admin")
 def admin_root():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
     return redirect(url_for("admin_dashboard"))
+
 
 @app.get("/admin/dashboard")
 def admin_dashboard():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
 
     total_produtos = Product.query.count()
     total_orcamentos = QuoteLog.query.count()
@@ -351,10 +368,13 @@ def admin_dashboard():
 
     since = datetime.utcnow() - timedelta(days=13)
     rows = (
-        db.session.query(db.func.date(QuoteLog.created_at).label("d"), db.func.count(QuoteLog.id).label("c"))
+        db.session.query(
+            func.date(QuoteLog.created_at).label("d"),
+            func.count(QuoteLog.id).label("c")
+        )
         .filter(QuoteLog.created_at >= since)
-        .group_by(db.func.date(QuoteLog.created_at))
-        .order_by(db.func.date(QuoteLog.created_at))
+        .group_by(func.date(QuoteLog.created_at))
+        .order_by(func.date(QuoteLog.created_at))
         .all()
     )
 
@@ -380,10 +400,12 @@ def admin_dashboard():
         title="Admin — Dashboard"
     )
 
+
 @app.get("/admin/orcamentos")
 def admin_orcamentos():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
 
     q = normalize_q(request.args.get("q", ""))
     query = QuoteLog.query
@@ -391,7 +413,7 @@ def admin_orcamentos():
     if q:
         like = f"%{q}%"
         query = query.filter(
-            db.or_(
+            or_(
                 QuoteLog.nome.ilike(like),
                 QuoteLog.empresa.ilike(like),
                 QuoteLog.cnpjcpf.ilike(like),
@@ -420,7 +442,8 @@ def admin_orcamentos():
 @app.get("/admin/produtos")
 def admin_products():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
 
     products = Product.query.order_by(Product.created_at.desc()).all()
     return render_template(
@@ -430,10 +453,12 @@ def admin_products():
         title="Admin — Produtos"
     )
 
+
 @app.post("/admin/produtos/novo")
 def admin_products_new():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
 
     sku = (request.form.get("sku") or "").strip()
     name = (request.form.get("name") or "").strip()
@@ -445,7 +470,13 @@ def admin_products_new():
         flash("SKU e Nome são obrigatórios.", "danger")
         return redirect(url_for("admin_products"))
 
-    p = Product(sku=sku, name=name, price_text=price_text, short=short, description=description)
+    p = Product(
+        sku=sku,
+        name=name,
+        price_text=price_text,
+        short=short,
+        description=description
+    )
     db.session.add(p)
     db.session.commit()
 
