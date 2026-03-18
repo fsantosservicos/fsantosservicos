@@ -172,13 +172,13 @@ def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> (b
 
     try:
         if ssl:
-            with smtplib.SMTP_SSL(host, port, timeout=60) as s:
+            with smtplib.SMTP_SSL(host, port, timeout=40) as s:
                 s.ehlo()
                 if user:
                     s.login(user, pw)
                 s.send_message(msg)
         else:
-            with smtplib.SMTP(host, port, timeout=60) as s:
+            with smtplib.SMTP(host, port, timeout=40) as s:
                 s.ehlo()
                 if tls:
                     s.starttls()
