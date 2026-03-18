@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv()  # localmente lê .env; no Render, usa env vars do painel
 except Exception:
     pass
 
@@ -41,6 +41,7 @@ app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "dev_secret_change_me")
 app.config["SQLALCHEMY_DATABASE_URI"] = DB_URI
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["PROPAGATE_EXCEPTIONS"] = True
 
 db = SQLAlchemy(app)
 
@@ -67,8 +68,8 @@ class Product(db.Model):
     short = db.Column(db.Text, nullable=True)
     description = db.Column(db.Text, nullable=True)
 
-    image_path = db.Column(db.String(400), nullable=True)  # uploads/covers/...
-    file_path = db.Column(db.String(400), nullable=True)   # uploads/pdfs/...
+    image_path = db.Column(db.String(400), nullable=True)
+    file_path = db.Column(db.String(400), nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -90,7 +91,7 @@ class QuoteLog(db.Model):
     telefone = db.Column(db.String(60), nullable=False)
     mensagem = db.Column(db.Text, nullable=True)
 
-    status = db.Column(db.String(30), nullable=False, default="enviado")  # enviado | erro
+    status = db.Column(db.String(30), nullable=False, default="enviado")
     error = db.Column(db.Text, nullable=True)
 
 
@@ -100,21 +101,26 @@ class QuoteLog(db.Model):
 ALLOWED_COVER_EXT = {"jpg", "jpeg", "png", "webp"}
 ALLOWED_PDF_EXT = {"pdf"}
 
+
 def ext_of(filename: str) -> str:
     filename = filename.lower().strip()
     return filename.rsplit(".", 1)[-1] if "." in filename else ""
+
 
 def safe_filename(filename: str) -> str:
     filename = secure_filename(filename)
     return filename or "file"
 
+
 def normalize_q(s: str) -> str:
     return (s or "").strip()
+
 
 def admin_required():
     if not session.get("admin_logged"):
         return redirect(url_for("admin_login"))
     return None
+
 
 def create_admin_if_missing():
     user = os.getenv("ADMIN_USER", "admin").strip()
@@ -127,23 +133,16 @@ def create_admin_if_missing():
     au = AdminUser(username=user, password_hash=generate_password_hash(pw))
     db.session.add(au)
     db.session.commit()
-    print(f"[OK] Admin criado: {user} (senha do .env)")
+    print(f"[OK] Admin criado: {user}")
 
 
-# ✅ ALTERAÇÃO SOLICITADA:
-# - Subject no formato: "Orçamento - NOME (SKU XXX)"
-# - From com nome exibido: "FSantosServiços - orçamento. <email@...>"
-# - Reply-To = email do cliente
-# - Suporte a TLS/SSL via env
-def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> (bool, str | None):
+def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> tuple[bool, str | None]:
     host = os.getenv("SMTP_HOST", "").strip()
     port_raw = os.getenv("SMTP_PORT", "25").strip()
     user = os.getenv("SMTP_USER", "").strip()
     pw = os.getenv("SMTP_PASS", "").strip()
-
     from_addr = os.getenv("SMTP_FROM", "").strip()
     to_addr = os.getenv("SMTP_TO", "").strip()
-
     from_name = os.getenv("SMTP_FROM_NAME", "FSantosServiços - orçamento.").strip()
 
     tls = os.getenv("SMTP_TLS", "false").strip().lower() in ("1", "true", "yes", "sim")
@@ -151,9 +150,12 @@ def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> (b
 
     if not host or not from_addr or not to_addr:
         missing = []
-        if not host: missing.append("SMTP_HOST")
-        if not from_addr: missing.append("SMTP_FROM")
-        if not to_addr: missing.append("SMTP_TO")
+        if not host:
+            missing.append("SMTP_HOST")
+        if not from_addr:
+            missing.append("SMTP_FROM")
+        if not to_addr:
+            missing.append("SMTP_TO")
         return False, "SMTP não configurado: faltando " + ", ".join(missing)
 
     try:
@@ -161,24 +163,36 @@ def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> (b
     except Exception:
         return False, f"SMTP_PORT inválido: {port_raw}"
 
+    print(
+        "[SMTP CONFIG]",
+        {
+            "SMTP_HOST": host,
+            "SMTP_PORT": port,
+            "SMTP_FROM": from_addr,
+            "SMTP_TO": to_addr,
+            "SMTP_TLS": tls,
+            "SMTP_SSL": ssl,
+            "SMTP_USER_PRESENTE": bool(user),
+        },
+    )
+
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"{from_name} <{from_addr}>"
     msg["To"] = to_addr
     if reply_to:
         msg["Reply-To"] = reply_to
-
     msg.set_content(body)
 
     try:
         if ssl:
-            with smtplib.SMTP_SSL(host, port, timeout=30) as s:
+            with smtplib.SMTP_SSL(host, port, timeout=12) as s:
                 s.ehlo()
                 if user:
                     s.login(user, pw)
                 s.send_message(msg)
         else:
-            with smtplib.SMTP(host, port, timeout=30) as s:
+            with smtplib.SMTP(host, port, timeout=12) as s:
                 s.ehlo()
                 if tls:
                     s.starttls()
@@ -188,17 +202,21 @@ def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> (b
                 s.send_message(msg)
 
         return True, None
+
     except Exception as e:
         return False, str(e)
 
 
-# =========================
-# INIT
-# =========================
 def init_all():
     with app.app_context():
         db.create_all()
         create_admin_if_missing()
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    app.logger.exception("Erro interno na aplicação")
+    return "Erro interno no servidor. Veja os logs do Render.", 500
 
 
 # =========================
@@ -249,7 +267,6 @@ def orcamento():
     if product_id.isdigit():
         product = Product.query.get(int(product_id))
 
-    # ✅ ASSUNTO NO FORMATO DA 2ª IMAGEM
     if product:
         subject = f"Orçamento - {product.name} (SKU {product.sku})"
     else:
@@ -272,7 +289,6 @@ def orcamento():
         body.append("Mensagem:")
         body.append(mensagem)
 
-    # ✅ Reply-To = email do cliente (quando clicar responder vai pra ele)
     sent, err = send_email_quote(subject, "\n".join(body), reply_to=email)
 
     try:
@@ -280,19 +296,19 @@ def orcamento():
             product_id=(product.id if product else None),
             product_name=(product.name if product else None),
             product_sku=(product.sku if product else None),
-            nome=nome, empresa=empresa, cnpjcpf=cnpjcpf,
-            email=email, telefone=telefone,
+            nome=nome,
+            empresa=empresa,
+            cnpjcpf=cnpjcpf,
+            email=email,
+            telefone=telefone,
             mensagem=mensagem or None,
             status=("enviado" if sent else "erro"),
-            error=(err if err else None)
+            error=(err if err else None),
         )
         db.session.add(log)
         db.session.commit()
     except Exception:
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
+        db.session.rollback()
 
     if err:
         flash(f"Orçamento registrado, mas NÃO foi enviado por e-mail: {err}", "warning")
@@ -309,6 +325,7 @@ def orcamento():
 def admin_login():
     return render_template("admin_login.html", year=datetime.now().year, title="Admin")
 
+
 @app.post("/admin/login")
 def admin_login_post():
     username = (request.form.get("username") or "").strip()
@@ -323,6 +340,7 @@ def admin_login_post():
     session["admin_user"] = u.username
     return redirect(url_for("admin_dashboard"))
 
+
 @app.get("/admin/logout")
 def admin_logout():
     session.clear()
@@ -335,13 +353,16 @@ def admin_logout():
 @app.get("/admin")
 def admin_root():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
     return redirect(url_for("admin_dashboard"))
+
 
 @app.get("/admin/dashboard")
 def admin_dashboard():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
 
     total_produtos = Product.query.count()
     total_orcamentos = QuoteLog.query.count()
@@ -380,10 +401,12 @@ def admin_dashboard():
         title="Admin — Dashboard"
     )
 
+
 @app.get("/admin/orcamentos")
 def admin_orcamentos():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
 
     q = normalize_q(request.args.get("q", ""))
     query = QuoteLog.query
@@ -420,7 +443,8 @@ def admin_orcamentos():
 @app.get("/admin/produtos")
 def admin_products():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
 
     products = Product.query.order_by(Product.created_at.desc()).all()
     return render_template(
@@ -430,10 +454,12 @@ def admin_products():
         title="Admin — Produtos"
     )
 
+
 @app.post("/admin/produtos/novo")
 def admin_products_new():
     r = admin_required()
-    if r: return r
+    if r:
+        return r
 
     sku = (request.form.get("sku") or "").strip()
     name = (request.form.get("name") or "").strip()
@@ -477,6 +503,75 @@ def admin_products_new():
     return redirect(url_for("admin_products"))
 
 
+@app.get("/admin/produtos/editar/<int:pid>")
+def admin_products_edit(pid: int):
+    r = admin_required()
+    if r:
+        return r
+
+    p = Product.query.get_or_404(pid)
+    return render_template(
+        "admin_product_edit.html",
+        year=datetime.now().year,
+        p=p,
+        title="Admin — Editar Produto"
+    )
+
+
+@app.post("/admin/produtos/editar/<int:pid>")
+def admin_products_edit_post(pid: int):
+    r = admin_required()
+    if r:
+        return r
+
+    p = Product.query.get_or_404(pid)
+
+    p.sku = (request.form.get("sku") or p.sku).strip()
+    p.name = (request.form.get("name") or p.name).strip()
+    p.price_text = (request.form.get("price_text") or p.price_text).strip()
+    p.short = (request.form.get("short") or "").strip() or None
+    p.description = (request.form.get("description") or "").strip() or None
+
+    cover_file = request.files.get("cover_file")
+    if cover_file and cover_file.filename:
+        e = ext_of(cover_file.filename)
+        if e in ALLOWED_COVER_EXT:
+            fn = safe_filename(f"cover_{p.id}_{int(datetime.utcnow().timestamp())}.{e}")
+            cover_file.save(os.path.join(COVERS_DIR, fn))
+            p.image_path = f"uploads/covers/{fn}"
+        else:
+            flash("Capa inválida. Use JPG/PNG/WEBP.", "warning")
+
+    pdf_file = request.files.get("pdf_file")
+    if pdf_file and pdf_file.filename:
+        e = ext_of(pdf_file.filename)
+        if e in ALLOWED_PDF_EXT:
+            fn = safe_filename(f"pdf_{p.id}_{int(datetime.utcnow().timestamp())}.{e}")
+            pdf_file.save(os.path.join(PDFS_DIR, fn))
+            p.file_path = f"uploads/pdfs/{fn}"
+        else:
+            flash("PDF inválido.", "warning")
+
+    p.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    flash("Produto atualizado com sucesso!", "success")
+    return redirect(url_for("admin_products"))
+
+
+@app.get("/admin/produtos/excluir/<int:pid>")
+def admin_products_delete(pid: int):
+    r = admin_required()
+    if r:
+        return r
+
+    p = Product.query.get_or_404(pid)
+    db.session.delete(p)
+    db.session.commit()
+    flash("Produto excluído.", "success")
+    return redirect(url_for("admin_products"))
+
+
 # =========================
 # MAIN
 # =========================
@@ -484,13 +579,18 @@ if __name__ == "__main__":
     import sys
 
     if "--init" in sys.argv:
-        with app.app_context():
-            db.create_all()
-            create_admin_if_missing()
+        init_all()
         print("[OK] Banco inicializado e admin garantido.")
-        sys.exit(0)
+        raise SystemExit(0)
 
     init_all()
     print(">>> SERVIDOR INICIADO: Solicitacao_compras.py <<<")
     print(">>> PASTA DO APP:", BASE_DIR)
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    print(">>> SMTP_HOST =", os.getenv("SMTP_HOST"))
+    print(">>> SMTP_PORT =", os.getenv("SMTP_PORT"))
+    print(">>> SMTP_FROM =", os.getenv("SMTP_FROM"))
+    print(">>> SMTP_TO   =", os.getenv("SMTP_TO"))
+    print(">>> SMTP_TLS  =", os.getenv("SMTP_TLS"))
+    print(">>> SMTP_SSL  =", os.getenv("SMTP_SSL"))
+
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
