@@ -9,27 +9,39 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
-# Carregar variáveis de ambiente localmente
+# Tenta carregar .env apenas localmente
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except Exception:
     pass
 
-app = Flask(__name__)
-
 # =========================
-# CONFIGURAÇÕES RENDER
+# CONFIGURAÇÕES DE CAMINHOS
 # =========================
-app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "dev_secret_123")
-# No Render, prefira usar PostgreSQL. Se usar SQLite, os dados resetam no deploy.
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///app.db")
-if app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgres://"):
-    app.config["SQLALCHEMY_DATABASE_URI"] = app.config["SQLALCHEMY_DATABASE_URI"].replace("postgres://", "postgresql://", 1)
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+# Garantindo que o Flask encontre as pastas templates e static
+app = Flask(__name__, 
+            template_folder=os.path.join(BASE_DIR, "templates"),
+            static_folder=os.path.join(BASE_DIR, "static"))
 
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "dev_secret_change_me")
+
+# Banco de Dados: Prioriza DATABASE_URL (Postgres) do Render, senão usa SQLite
+DB_URL = os.getenv("DATABASE_URL", "sqlite:///" + os.path.join(BASE_DIR, "instance", "app.db"))
+if DB_URL.startswith("postgres://"):
+    DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = DB_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+
+# Pastas de Upload (Cria se não existirem)
+UPLOADS_DIR = os.path.join(app.static_folder, "uploads")
+COVERS_DIR = os.path.join(UPLOADS_DIR, "covers")
+PDFS_DIR = os.path.join(UPLOADS_DIR, "pdfs")
+os.makedirs(COVERS_DIR, exist_ok=True)
+os.makedirs(PDFS_DIR, exist_ok=True)
 
 # =========================
 # MODELS
@@ -43,12 +55,13 @@ class AdminUser(db.Model):
 class Product(db.Model):
     __tablename__ = "products"
     id = db.Column(db.Integer, primary_key=True)
-    sku = db.Column(db.String(80), nullable=False)
-    name = db.Column(db.String(255), nullable=False)
+    sku = db.Column(db.String(80), nullable=False, index=True)
+    name = db.Column(db.String(255), nullable=False, index=True)
     price_text = db.Column(db.String(80), default="Sob consulta")
     short = db.Column(db.Text)
     description = db.Column(db.Text)
     image_path = db.Column(db.String(400))
+    file_path = db.Column(db.String(400))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class QuoteLog(db.Model):
@@ -66,77 +79,63 @@ class QuoteLog(db.Model):
 # =========================
 # HELPERS
 # =========================
-def send_email_quote(subject, body, reply_to):
+def send_email_quote(subject, body, reply_to=None):
     api_key = os.getenv("RESEND_API_KEY", "").strip()
     from_addr = os.getenv("RESEND_FROM", "onboarding@resend.dev").strip()
     to_addr = os.getenv("RESEND_TO", "").strip()
     
     if not api_key or not to_addr:
-        return False, "Configuração de API Resend ausente."
+        return False, "Configuração de e-mail pendente no Render."
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "from": f"FSantos <{from_addr}>",
         "to": [to_addr],
         "subject": subject,
-        "html": f"<div style='font-family:sans-serif;'>{body.replace(chr(10), '<br>')}</div>",
-        "reply_to": reply_to
+        "html": f"<pre style='font-family:sans-serif'>{body}</pre>",
     }
+    if reply_to: payload["reply_to"] = reply_to
+
     try:
         resp = requests.post("https://api.resend.com", headers=headers, json=payload, timeout=12)
         return (200 <= resp.status_code < 300), resp.text
     except Exception as e:
         return False, str(e)
 
-def create_admin_if_missing():
-    user = os.getenv("ADMIN_USER", "admin").strip()
-    pw = os.getenv("ADMIN_PASS", "admin123").strip()
-    if not AdminUser.query.filter_by(username=user).first():
-        au = AdminUser(username=user, password_hash=generate_password_hash(pw))
-        db.session.add(au)
-        db.session.commit()
-
 # =========================
-# ROTAS VITRINE
+# ROTAS PÚBLICAS
 # =========================
 @app.route("/")
 def home():
     q = request.args.get("q", "").strip()
     query = Product.query
     if q:
-        query = query.filter(Product.name.ilike(f"%{q}%") | Product.sku.ilike(f"%{q}%"))
+        like = f"%{q}%"
+        query = query.filter(db.or_(Product.name.ilike(like), Product.sku.ilike(like)))
     products = query.order_by(Product.created_at.desc()).all()
     return render_template("index.html", products=products, q=q, year=datetime.now().year)
 
 @app.post("/orcamento")
 def orcamento():
-    nome = request.form.get("nome")
-    email = request.form.get("email")
-    empresa = request.form.get("empresa")
-    telefone = request.form.get("telefone")
-    mensagem = request.form.get("mensagem")
-    product_id = request.form.get("product_id")
+    data = request.form
+    nome, email = data.get("nome"), data.get("email")
     
-    product = Product.query.get(product_id) if product_id else None
-    prod_name = product.name if product else "Solicitação Geral"
-    
-    body = f"Nova solicitação:\nNome: {nome}\nEmpresa: {empresa}\nE-mail: {email}\nTelefone: {telefone}\nProduto: {prod_name}\n\nMensagem: {mensagem}"
-    
-    sent, err = send_email_quote(f"Orçamento - {prod_name}", body, email)
+    if not nome or not email:
+        flash("Nome e E-mail são obrigatórios.", "danger")
+        return redirect(url_for("home"))
 
-    log = QuoteLog(nome=nome, email=email, empresa=empresa, telefone=telefone, 
-                   mensagem=mensagem, product_name=prod_name, status="enviado" if sent else "erro")
+    body = f"Cliente: {nome}\nEmpresa: {data.get('empresa')}\nE-mail: {email}\nTelefone: {data.get('telefone')}\nMsg: {data.get('mensagem')}"
+    sent, err = send_email_quote(f"Novo Orçamento - {nome}", body, reply_to=email)
+
+    log = QuoteLog(nome=nome, email=email, empresa=data.get("empresa"), mensagem=data.get("mensagem"), status="sucesso" if sent else "erro")
     db.session.add(log)
     db.session.commit()
 
-    if sent:
-        flash("Orçamento enviado com sucesso!", "success")
-    else:
-        flash(f"Erro ao enviar: {err}", "danger")
+    flash("Pedido enviado com sucesso!" if sent else f"Erro ao enviar: {err}", "success" if sent else "danger")
     return redirect(url_for("home"))
 
 # =========================
-# ROTAS ADMIN
+# ROTAS ADMIN (CHAMADAS HTML)
 # =========================
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
@@ -145,16 +144,25 @@ def admin_login():
         if user and check_password_hash(user.password_hash, request.form.get("password")):
             session["admin_logged"] = True
             return redirect(url_for("admin_dashboard"))
-        flash("Credenciais inválidas", "danger")
-    return render_template("login.html")
+        flash("Usuário ou senha inválidos.", "danger")
+    return render_template("admin_login.html")
 
-@app.route("/admin")
+@app.route("/admin/dashboard")
 def admin_dashboard():
-    if not session.get("admin_logged"):
-        return redirect(url_for("admin_login"))
-    logs = QuoteLog.query.order_by(QuoteLog.created_at.desc()).all()
+    if not session.get("admin_logged"): return redirect(url_for("admin_login"))
+    return render_template("admin_dashboard.html")
+
+@app.route("/admin/products")
+def admin_products():
+    if not session.get("admin_logged"): return redirect(url_for("admin_login"))
     products = Product.query.all()
-    return render_template("admin.html", logs=logs, products=products)
+    return render_template("admin_products.html", products=products)
+
+@app.route("/admin/orcamentos")
+def admin_orcamentos():
+    if not session.get("admin_logged"): return redirect(url_for("admin_login"))
+    logs = QuoteLog.query.order_by(QuoteLog.created_at.desc()).all()
+    return render_template("admin_orcamentos.html", logs=logs)
 
 @app.route("/logout")
 def logout():
@@ -166,7 +174,11 @@ def logout():
 # =========================
 with app.app_context():
     db.create_all()
-    create_admin_if_missing()
+    # Criar admin padrão se não existir
+    if not AdminUser.query.filter_by(username="admin").first():
+        hashed_pw = generate_password_hash(os.getenv("ADMIN_PASS", "admin123"))
+        db.session.add(AdminUser(username="admin", password_hash=hashed_pw))
+        db.session.commit()
 
 if __name__ == "__main__":
     app.run()
