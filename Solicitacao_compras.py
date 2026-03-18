@@ -6,130 +6,86 @@ from flask import (
     url_for, flash, session
 )
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
 
-# Carregar variáveis de ambiente
+# Tenta carregar variáveis de ambiente
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except:
     pass
 
-# =========================
-# CONFIGURAÇÃO DE DIRETÓRIOS
-# =========================
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 app = Flask(__name__, 
             template_folder=os.path.join(BASE_DIR, "templates"),
             static_folder=os.path.join(BASE_DIR, "static"))
 
-app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "fsantos_secret_key_fixed")
+# ATENÇÃO: Isso ajuda a ver o erro real no navegador em vez de "Internal Server Error"
+app.config["PROPAGATE_EXCEPTIONS"] = True
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "chave_mestra_123")
 
-# Banco de Dados (SQLite local ou Postgres no Render)
-INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
-os.makedirs(INSTANCE_DIR, exist_ok=True)
-DB_PATH = os.path.join(INSTANCE_DIR, "app.db")
-
-DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
-if DB_URL.startswith("postgres://"):
-    DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
-app.config["SQLALCHEMY_DATABASE_URI"] = DB_URL
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# Banco de Dados
+DB_PATH = os.path.join(BASE_DIR, "instance", "app.db")
+os.makedirs(os.path.join(BASE_DIR, "instance"), exist_ok=True)
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+if app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgres://"):
+    app.config["SQLALCHEMY_DATABASE_URI"] = app.config["SQLALCHEMY_DATABASE_URI"].replace("postgres://", "postgresql://", 1)
 
 db = SQLAlchemy(app)
 
-# =========================
-# MODELS BÁSICOS
-# =========================
+# --- MODELS ---
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     sku = db.Column(db.String(80))
     name = db.Column(db.String(255))
-    price_text = db.Column(db.String(80))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class QuoteLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(120))
-    email = db.Column(db.String(160))
-    status = db.Column(db.String(30), default="enviado")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ==========================================
-# MAPEAMENTO DE TODOS OS HTMLS DA IMAGEM
-# ==========================================
+# --- ROTAS CORRIGIDAS ---
 
-# 1. index.html e orcamento_modal.html (Home)
 @app.route("/")
 def home():
-    products = Product.query.order_by(Product.created_at.desc()).all()
-    # orcamento_modal.html deve estar incluído via {% include %} dentro do index.html
+    products = Product.query.all()
+    # Enviamos 'year' porque muitos templates base usam isso no rodapé
     return render_template("index.html", products=products, year=datetime.now().year)
 
-# 2. admin_login.html
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
-        user = os.getenv("ADMIN_USER", "admin")
-        pw = os.getenv("ADMIN_PASS", "admin123")
-        if request.form.get("username") == user and request.form.get("password") == pw:
+        if request.form.get("username") == "admin" and request.form.get("password") == "admin123":
             session["admin_logged"] = True
             return redirect(url_for("admin_dashboard"))
-        flash("Acesso negado!", "danger")
-    return render_template("admin_login.html")
+        flash("Erro no login", "danger")
+    return render_template("admin_login.html", year=datetime.now().year)
 
-# 3. admin_dashboard.html
 @app.route("/admin/dashboard")
 def admin_dashboard():
     if not session.get("admin_logged"): return redirect(url_for("admin_login"))
-    return render_template("admin_dashboard.html")
+    # Passamos variáveis comuns para evitar erro de 'undefined' no HTML
+    return render_template("admin_dashboard.html", year=datetime.now().year)
 
-# 4. admin_products.html
 @app.route("/admin/products")
 def admin_products():
     if not session.get("admin_logged"): return redirect(url_for("admin_login"))
     products = Product.query.all()
-    return render_template("admin_products.html", products=products)
+    return render_template("admin_products.html", products=products, year=datetime.now().year)
 
-# 5. admin_edit_product.html
-@app.route("/admin/product/edit/<int:id>")
-def admin_edit_product(id):
-    if not session.get("admin_logged"): return redirect(url_for("admin_login"))
-    product = Product.query.get_or_404(id)
-    return render_template("admin_edit_product.html", product=product)
-
-# 6. admin_orcamentos.html
 @app.route("/admin/orcamentos")
 def admin_orcamentos():
     if not session.get("admin_logged"): return redirect(url_for("admin_login"))
-    logs = QuoteLog.query.order_by(QuoteLog.created_at.desc()).all()
-    return render_template("admin_orcamentos.html", logs=logs)
+    logs = QuoteLog.query.all()
+    return render_template("admin_orcamentos.html", logs=logs, year=datetime.now().year)
 
-# 7. logs.html
 @app.route("/admin/logs")
-def view_system_logs():
+def view_logs():
     if not session.get("admin_logged"): return redirect(url_for("admin_login"))
-    return render_template("logs.html")
+    return render_template("logs.html", year=datetime.now().year)
 
-# 8. dashboard.html (Geral/Cliente)
-@app.route("/dashboard")
-def user_dashboard():
-    return render_template("dashboard.html")
-
-# Redirecionamento de segurança para /admin
-@app.route("/admin")
-def admin_root():
-    return redirect(url_for("admin_login"))
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("home"))
-
-# =========================
-# INICIALIZAÇÃO
-# =========================
+# Inicialização
 with app.app_context():
     db.create_all()
 
