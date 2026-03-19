@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: fsantos-servicos
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn Solicitacao_compras:app
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+
+      - key: FLASK_SECRET
+        generateValue: true
+
+      - key: ADMIN_USER
+        sync: false
+
+      - key: ADMIN_PASS
+        sync: false
+
+      - key: RESEND_API_KEY
+        sync: false
+
+      - key: RESEND_FROM
+        sync: false
+
+      - key: RESEND_TO
+        sync: false
+
+      - key: RESEND_FROM_NAME
+        value: FSantosServiços - orçamento.
+
+      - key: CLOUDINARY_URL
+        sync: false
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fsantos-db
+          property: connectionString
+
+databases:
+  - name: fsantos-db
+    plan: free
