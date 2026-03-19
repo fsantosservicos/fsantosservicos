@@ -1,51 +1,68 @@
-{% extends "admin_layout.html" %}
-{% set page_title = "Orçamentos enviados" %}
-{% set page_subtitle = "Consulta e auditoria (log no banco)" %}
+{% extends "base.html" %}
 
-{% block admin_content %}
+{% block content %}
+<div class="card">
+    <h1 style="margin-top:0;">Orçamentos</h1>
 
-<form method="GET" class="searchbar mt-3" style="max-width: 560px;">
-  <input class="form-control" name="q" placeholder="Buscar por cliente, e-mail, CNPJ/CPF, SKU..." value="{{ q }}">
-  <button class="btn btn-primary">Buscar</button>
-</form>
-
-<div class="cardx p-3 mt-3">
-  <div class="table-responsive">
-    <table class="table table-darkish align-middle">
-      <thead>
-        <tr>
-          <th>Data</th>
-          <th>Cliente</th>
-          <th>CNPJ/CPF</th>
-          <th>E-mail</th>
-          <th>Telefone</th>
-          <th>SKU</th>
-          <th>Status</th>
-          <th>Erro</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for l in logs %}
-        <tr>
-          <td class="text-muted">{{ l.created_at.strftime("%d/%m/%Y %H:%M") }}</td>
-          <td>{{ l.empresa }}</td>
-          <td class="text-muted">{{ l.cnpjcpf }}</td>
-          <td class="text-muted">{{ l.email }}</td>
-          <td class="text-muted">{{ l.telefone }}</td>
-          <td class="text-muted">{{ l.product_sku or "-" }}</td>
-          <td>
-            {% if l.status == "enviado" %}
-              <span class="badge bg-success">enviado</span>
-            {% else %}
-              <span class="badge bg-danger">erro</span>
-            {% endif %}
-          </td>
-          <td class="text-muted">{{ l.error or "-" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    <form method="get" action="{{ url_for('admin_orcamentos') }}" class="search-box">
+        <input type="text" name="q" placeholder="Pesquisar por nome, empresa, email, SKU..." value="{{ q or '' }}">
+        <button type="submit" class="btn">Pesquisar</button>
+        {% if q %}
+            <a href="{{ url_for('admin_orcamentos') }}" class="btn btn-secondary">Limpar</a>
+        {% endif %}
+    </form>
 </div>
 
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Cliente</th>
+                    <th>Contato</th>
+                    <th>Produto</th>
+                    <th>Mensagem</th>
+                    <th>Status</th>
+                    <th>Erro</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td>{{ log.created_at.strftime("%d/%m/%Y %H:%M") if log.created_at else "" }}</td>
+                    <td>
+                        <strong>{{ log.nome }}</strong><br>
+                        <span class="muted">{{ log.empresa }}</span><br>
+                        <span class="muted">{{ log.cnpjcpf }}</span>
+                    </td>
+                    <td>
+                        {{ log.email }}<br>
+                        <span class="muted">{{ log.telefone }}</span>
+                    </td>
+                    <td>
+                        {{ log.product_name or "-" }}
+                        {% if log.product_sku %}
+                            <br><span class="muted">SKU {{ log.product_sku }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="white-space:pre-line;">{{ log.mensagem or "-" }}</td>
+                    <td>
+                        {% if log.status == "enviado" %}
+                            <span class="badge" style="background:#dcfce7;color:#166534;">{{ log.status }}</span>
+                        {% else %}
+                            <span class="badge" style="background:#fee2e2;color:#991b1b;">{{ log.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="white-space:pre-line;">{{ log.error or "-" }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7">Nenhum orçamento encontrado.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
 {% endblock %}
