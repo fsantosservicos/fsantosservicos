@@ -2,6 +2,9 @@ import os
 from datetime import datetime, timedelta
 
 import resend
+import cloudinary
+import cloudinary.uploader
+
 from flask import (
     Flask, render_template, request, redirect,
     url_for, flash, session
@@ -34,19 +37,17 @@ for d in [INSTANCE_DIR, UPLOADS_DIR, COVERS_DIR, PDFS_DIR]:
     os.makedirs(d, exist_ok=True)
 
 # Banco:
-# - local: SQLite
-# - Render/produção: usa DATABASE_URL se existir
+# - produção/render: DATABASE_URL
+# - local: sqlite
 db_url = os.getenv("DATABASE_URL", "").strip()
 
 if db_url:
-    # Compatibilidade com alguns providers antigos
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
     DB_URI = db_url
 else:
     DB_PATH = os.path.join(INSTANCE_DIR, "app.db")
     DB_URI = "sqlite:///" + DB_PATH.replace("\\", "/")
-
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "dev_secret_change_me")
@@ -57,6 +58,14 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
 }
 
 db = SQLAlchemy(app)
+
+
+# =========================
+# CLOUDINARY
+# =========================
+CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "").strip()
+if CLOUDINARY_URL:
+    cloudinary.config(cloudinary_url=CLOUDINARY_URL, secure=True)
 
 
 # =========================
@@ -81,8 +90,13 @@ class Product(db.Model):
     short = db.Column(db.Text, nullable=True)
     description = db.Column(db.Text, nullable=True)
 
-    image_path = db.Column(db.String(400), nullable=True)  # uploads/covers/...
-    file_path = db.Column(db.String(400), nullable=True)   # uploads/pdfs/...
+    # Mantidos os nomes para evitar quebrar muita coisa no projeto
+    image_path = db.Column(db.String(1000), nullable=True)     # URL final da capa
+    file_path = db.Column(db.String(1000), nullable=True)      # URL final do PDF
+
+    # IDs do Cloudinary para manutenção futura
+    image_public_id = db.Column(db.String(500), nullable=True)
+    file_public_id = db.Column(db.String(500), nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(
@@ -109,7 +123,7 @@ class QuoteLog(db.Model):
     telefone = db.Column(db.String(60), nullable=False)
     mensagem = db.Column(db.Text, nullable=True)
 
-    status = db.Column(db.String(30), nullable=False, default="enviado")  # enviado | erro
+    status = db.Column(db.String(30), nullable=False, default="enviado")
     error = db.Column(db.Text, nullable=True)
 
 
@@ -154,19 +168,85 @@ def create_admin_if_missing():
     print(f"[OK] Admin criado: {user}")
 
 
-def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> tuple[bool, str | None]:
-    """
-    Envia e-mail usando Resend.
+def is_external_url(path: str | None) -> bool:
+    if not path:
+        return False
+    return path.startswith("http://") or path.startswith("https://")
 
-    Variáveis de ambiente:
-      - RESEND_API_KEY
-      - RESEND_FROM
-      - RESEND_TO
-      - RESEND_FROM_NAME (opcional)
+
+@app.context_processor
+def inject_helpers():
+    def asset_url(path: str | None):
+        if not path:
+            return ""
+        if is_external_url(path):
+            return path
+        return url_for("static", filename=path)
+    return {"asset_url": asset_url}
+
+
+def upload_cover_storage(file_storage, product_id: int) -> tuple[str, str]:
     """
+    Retorna: (url, public_id)
+    """
+    if not file_storage or not file_storage.filename:
+        raise ValueError("Arquivo de capa ausente.")
+
+    ext = ext_of(file_storage.filename)
+    if ext not in ALLOWED_COVER_EXT:
+        raise ValueError("Capa inválida. Use JPG/PNG/WEBP.")
+
+    if CLOUDINARY_URL:
+        file_storage.stream.seek(0)
+        result = cloudinary.uploader.upload(
+            file_storage,
+            folder="fsantos/produtos/capas",
+            public_id=f"produto_{product_id}_{int(datetime.utcnow().timestamp())}",
+            resource_type="image",
+            overwrite=True,
+        )
+        return result["secure_url"], result["public_id"]
+
+    # fallback local
+    fn = safe_filename(f"cover_{product_id}_{int(datetime.utcnow().timestamp())}.{ext}")
+    save_path = os.path.join(COVERS_DIR, fn)
+    file_storage.save(save_path)
+    return f"uploads/covers/{fn}", ""
+
+
+def upload_pdf_storage(file_storage, product_id: int) -> tuple[str, str]:
+    """
+    Retorna: (url, public_id)
+    """
+    if not file_storage or not file_storage.filename:
+        raise ValueError("Arquivo PDF ausente.")
+
+    ext = ext_of(file_storage.filename)
+    if ext not in ALLOWED_PDF_EXT:
+        raise ValueError("PDF inválido.")
+
+    if CLOUDINARY_URL:
+        file_storage.stream.seek(0)
+        result = cloudinary.uploader.upload(
+            file_storage,
+            folder="fsantos/produtos/pdfs",
+            public_id=f"produto_{product_id}_{int(datetime.utcnow().timestamp())}",
+            resource_type="raw",
+            overwrite=True,
+        )
+        return result["secure_url"], result["public_id"]
+
+    # fallback local
+    fn = safe_filename(f"pdf_{product_id}_{int(datetime.utcnow().timestamp())}.{ext}")
+    save_path = os.path.join(PDFS_DIR, fn)
+    file_storage.save(save_path)
+    return f"uploads/pdfs/{fn}", ""
+
+
+def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> tuple[bool, str | None]:
     api_key = os.getenv("RESEND_API_KEY", "").strip()
-    from_addr = os.getenv("RESEND_FROM", "").strip()
-    to_addr = os.getenv("RESEND_TO", "").strip()
+    from_addr = (os.getenv("RESEND_FROM") or os.getenv("MAIL_FROM") or "").strip()
+    to_addr = (os.getenv("RESEND_TO") or os.getenv("MAIL_TO") or "").strip()
     from_name = os.getenv("RESEND_FROM_NAME", "FSantosServiços - orçamento.").strip()
 
     if not api_key or not from_addr or not to_addr:
@@ -206,13 +286,36 @@ def send_email_quote(subject: str, body: str, reply_to: str | None = None) -> tu
         return False, str(e)
 
 
-# =========================
-# INIT
-# =========================
 def init_all():
     with app.app_context():
         db.create_all()
+
+        # migração simples caso a tabela já exista sem as novas colunas
+        try:
+            inspector = db.inspect(db.engine)
+            cols = {c["name"] for c in inspector.get_columns("products")}
+
+            alter_cmds = []
+            if "image_public_id" not in cols:
+                alter_cmds.append("ALTER TABLE products ADD COLUMN image_public_id VARCHAR(500)")
+            if "file_public_id" not in cols:
+                alter_cmds.append("ALTER TABLE products ADD COLUMN file_public_id VARCHAR(500)")
+
+            for cmd in alter_cmds:
+                db.session.execute(db.text(cmd))
+            if alter_cmds:
+                db.session.commit()
+                print("[OK] Migração simples aplicada em products.")
+        except Exception as e:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            print("[AVISO] Migração simples não aplicada:", e)
+
         create_admin_if_missing()
+        print("[DB] URI:", app.config["SQLALCHEMY_DATABASE_URI"])
+        print("[CLOUDINARY] Ativo:", bool(CLOUDINARY_URL))
 
 
 # =========================
@@ -274,6 +377,8 @@ def orcamento():
         body.append(f"Produto: {product.name}")
         body.append(f"SKU: {product.sku}")
         body.append(f"Preço: {product.price_text}")
+        if product.file_path:
+            body.append(f"PDF: {product.file_path}")
     body.append("")
     body.append(f"Nome: {nome}")
     body.append(f"Empresa/Cliente: {empresa}")
@@ -303,8 +408,12 @@ def orcamento():
         )
         db.session.add(log)
         db.session.commit()
-    except Exception:
+        print(f"[OK] Orçamento gravado | nome={nome} | email={email} | status={'enviado' if sent else 'erro'}")
+    except Exception as e:
         db.session.rollback()
+        print("[ERRO] Falha ao gravar orçamento:", str(e))
+        flash(f"Falha ao gravar o orçamento no banco: {e}", "danger")
+        return redirect(url_for("home"))
 
     if err:
         flash(f"Orçamento registrado, mas NÃO foi enviado por e-mail: {err}", "warning")
@@ -480,46 +589,44 @@ def admin_products_new():
     db.session.add(p)
     db.session.commit()
 
+    # Capa
     cover_file = request.files.get("cover_file")
     if cover_file and cover_file.filename:
-        e = ext_of(cover_file.filename)
-        if e not in ALLOWED_COVER_EXT:
-            flash("Capa inválida. Use JPG/PNG/WEBP.", "warning")
-        else:
-            fn = safe_filename(f"cover_{p.id}_{int(datetime.utcnow().timestamp())}.{e}")
-            cover_file.save(os.path.join(COVERS_DIR, fn))
-            p.image_path = f"uploads/covers/{fn}"
+        try:
+            image_url, image_public_id = upload_cover_storage(cover_file, p.id)
+            p.image_path = image_url
+            p.image_public_id = image_public_id or None
             p.updated_at = datetime.utcnow()
             db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Falha ao enviar capa: {e}", "warning")
 
+    # PDF
     pdf_file = request.files.get("pdf_file")
     if pdf_file and pdf_file.filename:
-        e = ext_of(pdf_file.filename)
-        if e not in ALLOWED_PDF_EXT:
-            flash("PDF inválido.", "warning")
-        else:
-            fn = safe_filename(f"pdf_{p.id}_{int(datetime.utcnow().timestamp())}.{e}")
-            pdf_file.save(os.path.join(PDFS_DIR, fn))
-            p.file_path = f"uploads/pdfs/{fn}"
+        try:
+            pdf_url, pdf_public_id = upload_pdf_storage(pdf_file, p.id)
+            p.file_path = pdf_url
+            p.file_public_id = pdf_public_id or None
             p.updated_at = datetime.utcnow()
             db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Falha ao enviar PDF: {e}", "warning")
 
     flash("Produto cadastrado com sucesso!", "success")
     return redirect(url_for("admin_products"))
 
 
-# =========================
-# MAIN
-# =========================
 if __name__ == "__main__":
     import sys
 
     if "--init" in sys.argv:
         with app.app_context():
-            db.create_all()
-            create_admin_if_missing()
+            init_all()
         print("[OK] Banco inicializado e admin garantido.")
-        sys.exit(0)
+        raise SystemExit(0)
 
     init_all()
     print(">>> SERVIDOR INICIADO: Solicitacao_compras.py <<<")
