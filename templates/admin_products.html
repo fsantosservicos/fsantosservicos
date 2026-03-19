@@ -1,95 +1,112 @@
-{% extends "admin_layout.html" %}
-{% set page_title = "Produtos" %}
-{% set page_subtitle = "Cadastro interno com upload seguro (JPG/PNG/WEBP/PDF)" %}
+{% extends "base.html" %}
 
-{% block admin_content %}
-
-<div class="row g-4 mt-2">
-
-  <div class="col-lg-5">
-    <div class="cardx p-3">
-      <h5 class="fw-bold mb-3">Novo produto</h5>
-
-      <form method="post" action="/admin/produtos/novo" enctype="multipart/form-data">
-        <label class="form-label">SKU/Código</label>
-        <input class="form-control mb-2" name="sku" required>
-
-        <label class="form-label">Nome</label>
-        <input class="form-control mb-2" name="name" required>
-
-        <label class="form-label">Preço (texto)</label>
-        <input class="form-control mb-2" name="price_text" value="Sob consulta">
-
-        <label class="form-label">Capa (imagem)</label>
-        <input class="form-control mb-2" type="file" name="cover_file" accept=".jpg,.jpeg,.png,.webp">
-
-        <label class="form-label">PDF</label>
-        <input class="form-control mb-2" type="file" name="pdf_file" accept=".pdf">
-
-        <label class="form-label">Descrição curta</label>
-        <textarea class="form-control mb-2" name="short"></textarea>
-
-        <label class="form-label">Descrição completa</label>
-        <textarea class="form-control mb-3" name="description"></textarea>
-
-        <button class="btn btn-success w-100 fw-semibold">Salvar Produto</button>
-      </form>
-    </div>
-  </div>
-
-  <div class="col-lg-7">
-    <div class="cardx p-3">
-      <h5 class="fw-bold mb-3">Cadastrados ({{ products|length }})</h5>
-
-      <div class="table-responsive">
-        <table class="table table-darkish align-middle">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>SKU</th>
-              <th>Nome</th>
-              <th>Capa</th>
-              <th>PDF</th>
-              <th class="text-end">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for p in products %}
-            <tr>
-              <td>{{ p.id }}</td>
-              <td class="text-info">{{ p.sku }}</td>
-              <td class="fw-semibold">{{ p.name }}</td>
-
-              <td>
-                {% if p.image_path %}
-                  <a href="{{ url_for('static', filename=p.image_path) }}" target="_blank">Ver</a>
-                {% else %}-{% endif %}
-              </td>
-
-              <td>
-                {% if p.file_path %}
-                  <a href="{{ url_for('static', filename=p.file_path) }}" target="_blank">Abrir</a>
-                {% else %}-{% endif %}
-              </td>
-
-              <td class="text-end">
-                <div class="d-flex justify-content-end gap-2">
-                  <a href="/admin/produtos/editar/{{ p.id }}" class="btn btn-sm btn-primary fw-semibold">Editar</a>
-                  <a href="/admin/produtos/excluir/{{ p.id }}"
-                     class="btn btn-sm btn-danger fw-semibold"
-                     onclick="return confirm('Deseja excluir este produto?')">Excluir</a>
-                </div>
-              </td>
-
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-    </div>
-  </div>
-
+{% block content %}
+<div class="card">
+    <h1 style="margin-top:0;">Produtos</h1>
+    <p class="muted">Cadastre novos produtos, capa e PDF.</p>
 </div>
 
+<div class="card">
+    <h2 style="margin-top:0;">Novo produto</h2>
+
+    <form method="post" action="{{ url_for('admin_products_new') }}" enctype="multipart/form-data">
+        <div class="form-row">
+            <div class="form-group">
+                <label>SKU *</label>
+                <input type="text" name="sku" required>
+            </div>
+            <div class="form-group">
+                <label>Nome *</label>
+                <input type="text" name="name" required>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Preço</label>
+            <input type="text" name="price_text" value="Sob consulta">
+        </div>
+
+        <div class="form-group">
+            <label>Resumo curto</label>
+            <textarea name="short"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>Descrição</label>
+            <textarea name="description"></textarea>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Capa (JPG, PNG, WEBP)</label>
+                <input type="file" name="cover_file" accept=".jpg,.jpeg,.png,.webp">
+            </div>
+            <div class="form-group">
+                <label>PDF</label>
+                <input type="file" name="pdf_file" accept=".pdf">
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-success">Cadastrar produto</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2 style="margin-top:0;">Produtos cadastrados</h2>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Capa</th>
+                    <th>Produto</th>
+                    <th>Preço</th>
+                    <th>PDF</th>
+                    <th>Atualizado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for product in products %}
+                <tr>
+                    <td>{{ product.id }}</td>
+                    <td style="width:120px;">
+                        {% if product.image_path %}
+                            <img
+                                src="{{ asset_url(product.image_path) }}"
+                                alt="{{ product.name }}"
+                                style="width:90px;height:90px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;"
+                            >
+                        {% else %}
+                            <span class="muted">Sem capa</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <strong>{{ product.name }}</strong><br>
+                        <span class="muted">SKU {{ product.sku }}</span>
+                        {% if product.short %}
+                            <br><span class="muted">{{ product.short }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ product.price_text }}</td>
+                    <td>
+                        {% if product.file_path %}
+                            <a href="{{ asset_url(product.file_path) }}" target="_blank" class="btn btn-secondary">Abrir PDF</a>
+                        {% else %}
+                            <span class="muted">Sem PDF</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ product.updated_at.strftime("%d/%m/%Y %H:%M") if product.updated_at else "" }}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6">Nenhum produto cadastrado.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
 {% endblock %}
