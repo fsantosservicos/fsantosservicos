@@ -307,7 +307,7 @@ def orcamento():
         db.session.rollback()
 
     if err:
-        flash(f"Orçamento registrado, mas NÃO foi enviado por e-mail: {err}", "warning")
+        flash(f"Orçamento registrado.)
     else:
         flash("Orçamento enviado com sucesso!", "success")
 
