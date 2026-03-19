@@ -1,76 +1,103 @@
 {% extends "base.html" %}
+
 {% block content %}
+<div class="card">
+    <h1 style="margin-top:0;">Catálogo de Produtos</h1>
+    <p class="muted">Pesquise por SKU, nome ou descrição.</p>
 
-<div class="page-head">
-  <div class="page-title">
-    <h2 class="m-0 fw-800">Produtos</h2>
-  </div>
-
-  <form method="GET" class="searchbar">
-    <input
-      type="text"
-      name="q"
-      class="form-control"
-      placeholder="Buscar por palavra ou número"
-      value="{{ q if q else '' }}"
-      autocomplete="off"
-    />
-    <button type="submit" class="btn btn-primary">Buscar</button>
-  </form>
+    <form method="get" action="{{ url_for('home') }}" class="search-box">
+        <input type="text" name="q" placeholder="Digite SKU, nome ou termo..." value="{{ q or '' }}">
+        <button type="submit" class="btn">Pesquisar</button>
+        {% if q %}
+            <a href="{{ url_for('home') }}" class="btn btn-secondary">Limpar</a>
+        {% endif %}
+    </form>
 </div>
 
-<div class="row g-4">
-  {% for p in products %}
-  <div class="col-12 col-md-6 col-lg-4">
-    <div class="cardx h-100 product-card">
+{% if products %}
+    <div class="grid">
+        {% for product in products %}
+            <div class="card">
+                {% if product.image_path %}
+                    <img
+                        src="{{ asset_url(product.image_path) }}"
+                        alt="{{ product.name }}"
+                        class="product-image"
+                    >
+                {% else %}
+                    <div class="product-image" style="display:flex;align-items:center;justify-content:center;color:#64748b;">
+                        Sem imagem
+                    </div>
+                {% endif %}
 
-      <div class="thumb">
-        {% if p.image_path %}
-          <img src="{{ url_for('static', filename=p.image_path) }}" alt="{{ p.name }}">
-        {% else %}
-          <div class="thumb-empty">Sem imagem</div>
-        {% endif %}
-      </div>
+                <div style="margin-top:14px;">
+                    <div class="badge">SKU {{ product.sku }}</div>
+                    <h2 style="margin:10px 0 8px 0; font-size:20px;">{{ product.name }}</h2>
+                    <div style="font-size:20px;font-weight:bold;color:#15803d;">{{ product.price_text }}</div>
 
-      <div class="p-3 product-body">
-        <div class="d-flex align-items-center justify-content-between mb-2">
-          <span class="pill">{{ p.sku }}</span>
-          <span class="price">{{ p.price_text }}</span>
-        </div>
+                    {% if product.short %}
+                        <p class="muted" style="margin-top:10px;">{{ product.short }}</p>
+                    {% endif %}
 
-        <h5 class="fw-bold mb-1 product-title">{{ p.name }}</h5>
+                    {% if product.description %}
+                        <p style="white-space:pre-line;">{{ product.description }}</p>
+                    {% endif %}
 
-        {% if p.short %}
-          <p class="small text-muted mb-3 product-desc">{{ p.short }}</p>
-        {% else %}
-          <p class="small text-muted mb-3 product-desc"></p>
-        {% endif %}
+                    <div class="actions" style="margin-top:12px;">
+                        {% if product.file_path %}
+                            <a href="{{ asset_url(product.file_path) }}" target="_blank" class="btn btn-secondary">
+                                Ver PDF
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
 
-        <div class="product-actions">
-          <div class="d-flex gap-2 flex-wrap">
-            {% if p.file_path %}
-              <a class="btn btn-outline-light btn-sm"
-                 target="_blank"
-                 href="{{ url_for('static', filename=p.file_path) }}">
-                Abrir PDF
-              </a>
-            {% endif %}
+                <hr style="margin:18px 0;border:none;border-top:1px solid #e5e7eb;">
 
-            <button class="btn btn-success btn-sm"
-              data-bs-toggle="modal"
-              data-bs-target="#orcamentoModal"
-              onclick="setProduto('{{ p.id }}','{{ p.name|e }}','{{ p.sku|e }}','{{ p.price_text|e }}')">
-              Solicitar Orçamento
-            </button>
-          </div>
-        </div>
+                <h3 style="margin-top:0;">Solicitar orçamento</h3>
+                <form method="post" action="{{ url_for('orcamento') }}">
+                    <input type="hidden" name="product_id" value="{{ product.id }}">
 
-      </div>
+                    <div class="form-group">
+                        <label>Nome *</label>
+                        <input type="text" name="nome" required>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Empresa / Cliente *</label>
+                            <input type="text" name="empresa" required>
+                        </div>
+                        <div class="form-group">
+                            <label>CNPJ / CPF *</label>
+                            <input type="text" name="cnpjcpf" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>E-mail *</label>
+                            <input type="email" name="email" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Telefone *</label>
+                            <input type="text" name="telefone" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Mensagem</label>
+                        <textarea name="mensagem" placeholder="Descreva a necessidade, quantidade, prazo, etc."></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-success">Enviar orçamento</button>
+                </form>
+            </div>
+        {% endfor %}
     </div>
-  </div>
-  {% endfor %}
-</div>
-
-{% include "orcamento_modal.html" %}
-
+{% else %}
+    <div class="card">
+        <p style="margin:0;">Nenhum produto encontrado.</p>
+    </div>
+{% endif %}
 {% endblock %}
